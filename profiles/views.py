@@ -11,7 +11,15 @@ from .services import intelligent_profile
 class ProfileListCreateView(APIView):
 
     def post(self, request):
-        name = request.data.get("name", "").strip()
+        name = request.data.get("name")
+
+        if name is None:
+            return Response(
+                {"status": "error", "message": "Name is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        name = str(name).strip()
 
         if not name:
             return Response(
@@ -19,9 +27,9 @@ class ProfileListCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        if not isinstance(name, str):
+        if name.isdigit():
             return Response(
-                {"status": "error", "message": "Name must be a string"},
+                {"status": "error", "message": "Name must not be numeric"},
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY
             )
 
