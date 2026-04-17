@@ -1,7 +1,6 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from uuid6 import uuid7
 
 from .models import Profile
 from .serializers import ProfileSerializer, ProfileListSerializer
@@ -15,7 +14,7 @@ class ProfileListCreateView(APIView):
 
         if name is None:
             return Response(
-                {"status": "error", "message": "Name is required"},
+                {"error": "Name is required"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -23,56 +22,46 @@ class ProfileListCreateView(APIView):
 
         if not name:
             return Response(
-                {"status": "error", "message": "Name is required"},
+                {"error": "Name is required"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         if name.isdigit():
             return Response(
-                {"status": "error", "message": "Name must not be numeric"},
+                {"error": "Name must not be numeric"},
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY
             )
 
-        existing = Profile.objects.filter(name=name.lower()).first()
+        normalized_name = name.lower()
+
+        existing = Profile.objects.filter(name=normalized_name).first()
         if existing:
             serializer = ProfileSerializer(existing)
-            return Response(
-                {
-                    "status": "success",
-                    "message": "Profile already exists",
-                    "data": serializer.data
-                },
-                status=status.HTTP_200_OK
-            )
+            return Response(serializer.data, status=status.HTTP_200_OK)
 
         try:
-            enriched = intelligent_profile(name)
+            enriched = intelligent_profile(normalized_name)
         except ValueError as e:
             return Response(
-                {"status": "502", "message": str(e)},
+                {"error": str(e)},
                 status=status.HTTP_502_BAD_GATEWAY
             )
-        except Exception as e:
-            print(f"ERROR: {e}")
+        except Exception:
             return Response(
-                {"status": "error", "message": "Failed to reach external APIs"},
+                {"error": "Failed to reach external APIs"},
                 status=status.HTTP_502_BAD_GATEWAY
             )
 
         profile = Profile.objects.create(
-            id=str(uuid7()),
-            name=name.lower(),
+            name=normalized_name,
             **enriched
         )
 
         serializer = ProfileSerializer(profile)
-        return Response(
-            {"status": "success", "data": serializer.data},
-            status=status.HTTP_201_CREATED
-        )
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def get(self, request):
-        queryset = Profile.objects.all()
+        queryset = Profile.objects.all().order_by("id")
 
         gender = request.query_params.get("gender")
         country_id = request.query_params.get("country_id")
@@ -86,10 +75,7 @@ class ProfileListCreateView(APIView):
             queryset = queryset.filter(age_group__iexact=age_group)
 
         serializer = ProfileListSerializer(queryset, many=True)
-        return Response(
-            {"status": "success", "count": queryset.count(), "data": serializer.data},
-            status=status.HTTP_200_OK
-        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class ProfileDetailView(APIView):
@@ -98,21 +84,20 @@ class ProfileDetailView(APIView):
         profile = Profile.objects.filter(id=id).first()
         if not profile:
             return Response(
-                {"status": "error", "message": "Profile not found"},
+                {"error": "Profile not found"},
                 status=status.HTTP_404_NOT_FOUND
             )
+
         serializer = ProfileSerializer(profile)
-        return Response(
-            {"status": "success", "data": serializer.data},
-            status=status.HTTP_200_OK
-        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def delete(self, request, id):
         profile = Profile.objects.filter(id=id).first()
         if not profile:
             return Response(
-                {"status": "error", "message": "Profile not found"},
+                {"error": "Profile not found"},
                 status=status.HTTP_404_NOT_FOUND
             )
+
         profile.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

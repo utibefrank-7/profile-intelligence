@@ -6,7 +6,8 @@ NATIONALIZE_URL = "https://api.nationalize.io"
 
 
 def get_gender(name):
-    response = requests.get(GENDERIZE_URL, params={"name": name})
+    response = requests.get(GENDERIZE_URL, params={"name": name}, timeout=10)
+    response.raise_for_status()
     data = response.json()
 
     if not data.get("gender") or data.get("count", 0) == 0:
@@ -14,19 +15,20 @@ def get_gender(name):
 
     return {
         "gender": data["gender"],
-        "gender_probability": data["probability"],  # renamed to match model
-        "sample_size": data["count"],               # renamed to match model
+        "gender_probability": data["probability"],
+        "sample_size": data["count"],
     }
 
 
 def get_age(name):
-    response = requests.get(AGIFY_URL, params={"name": name})  # fixed: requests not request
+    response = requests.get(AGIFY_URL, params={"name": name}, timeout=10)
+    response.raise_for_status()
     data = response.json()
 
-    if data.get("age") is None:  # fixed: "age" as string not variable
+    if data.get("age") is None:
         raise ValueError("Agify returned an invalid response")
 
-    age = data["age"]  # now safe to assign after the check
+    age = data["age"]
 
     if age <= 12:
         age_group = "child"
@@ -44,19 +46,20 @@ def get_age(name):
 
 
 def get_nationality(name):
-    response = requests.get(NATIONALIZE_URL, params={"name": name})  # fixed typo
+    response = requests.get(NATIONALIZE_URL, params={"name": name}, timeout=10)
+    response.raise_for_status()
     data = response.json()
 
-    countries = data.get("country", [])  # fixed: consistent variable name
+    countries = data.get("country", [])
 
     if not countries:
         raise ValueError("Nationalize returned an invalid response")
 
-    top_country = max(countries, key=lambda c: c["probability"])  # fixed: countries not country
+    top_country = max(countries, key=lambda c: c["probability"])
 
     return {
-        "country_id": top_country["country_id"],        # matches model field
-        "country_probability": top_country["probability"],  # matches model field
+        "country_id": top_country["country_id"],
+        "country_probability": top_country["probability"],
     }
 
 
