@@ -76,14 +76,17 @@ WSGI_APPLICATION = "IntelligentProfile.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.mysql",
-        "NAME": "intelligentprofile_db",
-        "USER": "root",
-        "PASSWORD": "Wallet",
-        "HOST": "localhost",
-        "PORT": "3306",
+ATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': config('DB_NAME'),
+        'USER': config('DB_USER'),
+        'PASSWORD': config('DB_PASSWORD'),
+        'HOST': config('DB_HOST'),
+        'PORT': config('DB_PORT', default='3306'),
+        'OPTIONS': {
+            'connect_timeout': 10,
+        },
     }
 }
 
