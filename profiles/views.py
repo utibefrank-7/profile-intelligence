@@ -1,103 +1,184 @@
-from rest_framework.views import APIView
+import requests
+from uuid6 import uuid7
+from django.db import IntegrityError, transaction
+from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 
 from .models import Profile
-from .serializers import ProfileSerializer, ProfileListSerializer
-from .services import intelligent_profile
+from .serializers import (
+    ProfileCreateSerializer,
+    ProfileDetailSerializer,
+    ProfileListSerializer,
+)
+from .utils import (
+    normalize_name,
+    classify_age_group,
+    fetch_genderize,
+    fetch_agify,
+    fetch_nationalize,
+    get_top_country,
+    UpstreamValidationError,
+)
 
 
-class ProfileListCreateView(APIView):
+@api_view(["GET", "POST"])
+def profiles_collection(request):
+    if request.method == "POST":
+        return create_profile(request)
+    return list_profiles(request)
 
-    def post(self, request):
-        name = request.data.get("name")
 
-        if name is None:
-            return Response(
-                {"error": "Name is required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+@api_view(["GET", "DELETE"])
+def profile_detail_view(request, id):
+    if request.method == "GET":
+        return get_profile(request, id)
+    return delete_profile(request, id)
 
-        name = str(name).strip()
 
-        if not name:
-            return Response(
-                {"error": "Name is required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+def create_profile(request):
+    raw_name = request.data.get("name", None)
 
-        if name.isdigit():
-            return Response(
-                {"error": "Name must not be numeric"},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY
-            )
-
-        normalized_name = name.lower()
-
-        existing = Profile.objects.filter(name=normalized_name).first()
-        if existing:
-            serializer = ProfileSerializer(existing)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-
-        try:
-            enriched = intelligent_profile(normalized_name)
-        except ValueError as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_502_BAD_GATEWAY
-            )
-        except Exception:
-            return Response(
-                {"error": "Failed to reach external APIs"},
-                status=status.HTTP_502_BAD_GATEWAY
-            )
-
-        profile = Profile.objects.create(
-            name=normalized_name,
-            **enriched
+    if raw_name is None:
+        return Response(
+            {"status": "error", "message": "Missing or empty name"},
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
-        serializer = ProfileSerializer(profile)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    if not isinstance(raw_name, str):
+        return Response(
+            {"status": "error", "message": "Invalid type"},
+            status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
 
-    def get(self, request):
-        queryset = Profile.objects.all().order_by("id")
+    if raw_name.strip() == "":
+        return Response(
+            {"status": "error", "message": "Missing or empty name"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
-        gender = request.query_params.get("gender")
-        country_id = request.query_params.get("country_id")
-        age_group = request.query_params.get("age_group")
+    normalized_name = normalize_name(raw_name)
 
-        if gender:
-            queryset = queryset.filter(gender__iexact=gender)
-        if country_id:
-            queryset = queryset.filter(country_id__iexact=country_id)
-        if age_group:
-            queryset = queryset.filter(age_group__iexact=age_group)
+    existing = Profile.objects.filter(name=normalized_name).first()
+    if existing:
+        return Response(
+            {
+                "status": "success",
+                "message": "Profile already exists",
+                "data": ProfileDetailSerializer(existing).data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
-        serializer = ProfileListSerializer(queryset, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+    try:
+        genderize_data = fetch_genderize(normalized_name)
+        agify_data = fetch_agify(normalized_name)
+        nationalize_data = fetch_nationalize(normalized_name)
+    except UpstreamValidationError as exc:
+        return Response(
+            {"status": "502", "message": f"{exc.api_name} returned an invalid response"},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    except requests.RequestException:
+        return Response(
+            {"status": "error", "message": "Server failure"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
+    age = agify_data["age"]
+    age_group = classify_age_group(age)
+    country_id, country_probability = get_top_country(nationalize_data)
 
-class ProfileDetailView(APIView):
-
-    def get(self, request, id):
-        profile = Profile.objects.filter(id=id).first()
-        if not profile:
-            return Response(
-                {"error": "Profile not found"},
-                status=status.HTTP_404_NOT_FOUND
+    try:
+        with transaction.atomic():
+            profile = Profile.objects.create(
+                id=str(uuid7()),
+                name=normalized_name,
+                gender=genderize_data["gender"],
+                gender_probability=genderize_data["probability"],
+                sample_size=genderize_data["count"],
+                age=age,
+                age_group=age_group,
+                country_id=country_id,
+                country_probability=country_probability,
             )
-
-        serializer = ProfileSerializer(profile)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    def delete(self, request, id):
-        profile = Profile.objects.filter(id=id).first()
-        if not profile:
+    except IntegrityError:
+        existing = Profile.objects.filter(name=normalized_name).first()
+        if existing:
             return Response(
-                {"error": "Profile not found"},
-                status=status.HTTP_404_NOT_FOUND
+                {
+                    "status": "success",
+                    "message": "Profile already exists",
+                    "data": ProfileDetailSerializer(existing).data,
+                },
+                status=status.HTTP_200_OK,
             )
+        return Response(
+            {"status": "error", "message": "Server failure"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
-        profile.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+    return Response(
+        {
+            "status": "success",
+            "data": ProfileDetailSerializer(profile).data,
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
+def get_profile(request, id):
+    try:
+        profile = Profile.objects.get(id=id)
+    except Profile.DoesNotExist:
+        return Response(
+            {"status": "error", "message": "Profile not found"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    return Response(
+        {
+            "status": "success",
+            "data": ProfileDetailSerializer(profile).data,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+def list_profiles(request):
+    profiles = Profile.objects.all()
+
+    gender = request.GET.get("gender")
+    country_id = request.GET.get("country_id")
+    age_group = request.GET.get("age_group")
+
+    if gender:
+        profiles = profiles.filter(gender__iexact=gender)
+    if country_id:
+        profiles = profiles.filter(country_id__iexact=country_id)
+    if age_group:
+        profiles = profiles.filter(age_group__iexact=age_group)
+
+    data = ProfileListSerializer(profiles, many=True).data
+
+    return Response(
+        {
+            "status": "success",
+            "count": len(data),
+            "data": data,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+def delete_profile(request, id):
+    try:
+        profile = Profile.objects.get(id=id)
+    except Profile.DoesNotExist:
+        return Response(
+            {"status": "error", "message": "Profile not found"},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    profile.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
