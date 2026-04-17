@@ -1,6 +1,7 @@
 from django.db import models
 
 class Profile(models.Model):
+    id = models.CharField(max_length=36, primary_key=True, editable=False)
     name = models.CharField(max_length=100, unique=True)
     gender = models.CharField(max_length=50, null=True, blank=True)
     gender_probability = models.FloatField(null=True, blank=True)
