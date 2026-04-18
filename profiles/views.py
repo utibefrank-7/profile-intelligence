@@ -208,4 +208,7 @@ def delete_profile(request, id):
             status=status.HTTP_404_NOT_FOUND,
         )
 
-   
+    profile.delete()
+    # WHY: 204 No Content — correct response for DELETE.
+    # No body is returned because the resource no longer exists.
+    return Response(status=status.HTTP_204_NO_CONTENT)
