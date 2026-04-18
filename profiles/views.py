@@ -20,7 +20,9 @@ from .utils import (
     get_top_country,
     UpstreamValidationError,
 )
-
+def create_profile(request):
+    print(f"POST received - name: {request.data.get('name')}", flush=True)
+    raw_name = request.data.get("name", None)
 
 @api_view(["GET", "POST"])
 def profiles_collection(request):
