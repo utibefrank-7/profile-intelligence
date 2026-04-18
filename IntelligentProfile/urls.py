@@ -14,10 +14,15 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
-from django.contrib import admin
 from django.urls import path, include
+from django.http import JsonResponse
+
+def handler404(request, exception):
+    return JsonResponse(
+        {"status": "error", "message": "Profile not found."},
+        status=404
+    )
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
-    path("api/", include("profiles.urls")),
+    path('', include('profiles.urls')),
 ]
